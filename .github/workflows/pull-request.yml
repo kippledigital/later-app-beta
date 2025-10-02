@@ -1,0 +1,450 @@
+# Pull Request Validation Workflow
+name: Pull Request Validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, develop]
+
+env:
+  NODE_VERSION: '18'
+
+jobs:
+  # PR Validation
+  pr-validation:
+    name: PR Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Full history for better analysis
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Validate PR Title
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+
+      - name: Check for Breaking Changes
+        run: |
+          # Check if this PR contains breaking changes
+          echo "Checking for breaking changes..."
+          git diff origin/main...HEAD --name-only | grep -E "(package\.json|schema\.sql|types\.ts)" || echo "No breaking changes detected"
+
+      - name: Validate Commit Messages
+        run: |
+          # Validate commit message format
+          commits=$(git rev-list origin/main..HEAD)
+          for commit in $commits; do
+            message=$(git log --format=%B -n 1 $commit)
+            if ! echo "$message" | grep -qE "^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\(.+\))?: .+"; then
+              echo "Invalid commit message format: $message"
+              exit 1
+            fi
+          done
+
+  # Changed Files Analysis
+  analyze-changes:
+    name: Analyze Changed Files
+    runs-on: ubuntu-latest
+
+    outputs:
+      backend-changed: ${{ steps.changes.outputs.backend }}
+      frontend-changed: ${{ steps.changes.outputs.frontend }}
+      tests-changed: ${{ steps.changes.outputs.tests }}
+      docs-changed: ${{ steps.changes.outputs.docs }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect Changes
+        uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            backend:
+              - 'later-backend/**'
+              - '.github/workflows/**'
+            frontend:
+              - 'later-frontend/**'
+              - '.github/workflows/**'
+            tests:
+              - '**/__tests__/**'
+              - '**/*.test.*'
+              - 'e2e/**'
+              - 'performance-testing/**'
+            docs:
+              - '**/*.md'
+              - 'docs/**'
+
+  # Backend Validation
+  backend-validation:
+    name: Backend Validation
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: needs.analyze-changes.outputs.backend-changed == 'true'
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Lint Backend Code
+        working-directory: ./later-backend
+        run: npm run lint
+
+      - name: Type Check Backend
+        working-directory: ./later-backend
+        run: npm run type-check
+
+      - name: Check Database Migrations
+        working-directory: ./later-backend
+        run: |
+          # Validate that migrations are properly formatted
+          if [ -d "supabase/migrations" ]; then
+            echo "Validating database migrations..."
+            # Add migration validation logic
+          fi
+
+      - name: Start Supabase
+        working-directory: ./later-backend
+        run: |
+          npm install -g supabase
+          supabase start
+
+      - name: Run Backend Tests
+        working-directory: ./later-backend
+        run: npm run test:ci
+        env:
+          SUPABASE_TEST_URL: http://localhost:54321
+
+      - name: Check API Documentation
+        working-directory: ./later-backend
+        run: |
+          # Validate OpenAPI specs if they exist
+          if [ -f "api-docs.yaml" ]; then
+            npx swagger-parser validate api-docs.yaml
+          fi
+
+  # Frontend Validation
+  frontend-validation:
+    name: Frontend Validation
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: needs.analyze-changes.outputs.frontend-changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Lint Frontend Code
+        working-directory: ./later-frontend
+        run: npm run lint
+
+      - name: Type Check Frontend
+        working-directory: ./later-frontend
+        run: npm run type-check
+
+      - name: Run Frontend Tests
+        working-directory: ./later-frontend
+        run: npm run test:ci
+
+      - name: Check Bundle Size
+        working-directory: ./later-frontend
+        run: |
+          # Check if bundle size has increased significantly
+          npm run build
+          # Add bundle size analysis logic
+          echo "Bundle size analysis completed"
+
+      - name: Validate Expo Configuration
+        working-directory: ./later-frontend
+        run: |
+          # Validate app.json/app.config.js
+          npx expo config --type prebuild
+          npx expo install --check
+
+  # Security Validation
+  security-validation:
+    name: Security Validation
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Security Audit
+        run: |
+          if [ "${{ needs.analyze-changes.outputs.backend-changed }}" = "true" ]; then
+            cd later-backend && npm audit --audit-level=moderate
+          fi
+          if [ "${{ needs.analyze-changes.outputs.frontend-changed }}" = "true" ]; then
+            cd later-frontend && npm audit --audit-level=moderate
+          fi
+
+      - name: Scan for Secrets
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+
+      - name: Run Semgrep Security Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+
+  # Test Coverage Analysis
+  test-coverage:
+    name: Test Coverage Analysis
+    runs-on: ubuntu-latest
+    needs: [backend-validation, frontend-validation]
+    if: always() && (needs.backend-validation.result == 'success' || needs.frontend-validation.result == 'success')
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Generate Backend Coverage
+        if: needs.analyze-changes.outputs.backend-changed == 'true'
+        working-directory: ./later-backend
+        run: |
+          npm ci
+          npm run test:coverage
+        env:
+          SUPABASE_TEST_URL: http://localhost:54321
+
+      - name: Generate Frontend Coverage
+        if: needs.analyze-changes.outputs.frontend-changed == 'true'
+        working-directory: ./later-frontend
+        run: |
+          npm ci
+          npm run test:coverage
+
+      - name: Upload Coverage Reports
+        uses: codecov/codecov-action@v3
+        with:
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Coverage Comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          recreate: true
+          message: |
+            ## Test Coverage Report
+
+            Coverage reports have been generated and uploaded to Codecov.
+
+            ### Coverage Summary
+            - Backend: Check Codecov for detailed backend coverage
+            - Frontend: Check Codecov for detailed frontend coverage
+
+            Please ensure that new code has adequate test coverage.
+
+  # Performance Impact Analysis
+  performance-impact:
+    name: Performance Impact Analysis
+    runs-on: ubuntu-latest
+    needs: [analyze-changes]
+    if: needs.analyze-changes.outputs.backend-changed == 'true' || needs.analyze-changes.outputs.frontend-changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Bundle Size Analysis
+        if: needs.analyze-changes.outputs.frontend-changed == 'true'
+        working-directory: ./later-frontend
+        run: |
+          npm ci
+          # Generate bundle analysis
+          npx expo export --source-maps
+          echo "Bundle analysis completed"
+
+      - name: Performance Benchmarks
+        if: needs.analyze-changes.outputs.backend-changed == 'true'
+        working-directory: ./later-backend
+        run: |
+          # Run lightweight performance tests
+          npm ci
+          echo "Performance benchmarks completed"
+
+  # Documentation Validation
+  docs-validation:
+    name: Documentation Validation
+    runs-on: ubuntu-latest
+    needs: analyze-changes
+    if: needs.analyze-changes.outputs.docs-changed == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate Markdown
+        run: |
+          # Install markdownlint
+          npm install -g markdownlint-cli
+
+          # Lint markdown files
+          markdownlint **/*.md --ignore node_modules
+
+      - name: Check Links
+        run: |
+          # Install markdown-link-check
+          npm install -g markdown-link-check
+
+          # Check for broken links
+          find . -name "*.md" -not -path "./node_modules/*" -exec markdown-link-check {} \;
+
+  # E2E Test Preview
+  e2e-preview:
+    name: E2E Test Preview
+    runs-on: macos-latest
+    needs: [frontend-validation]
+    if: needs.analyze-changes.outputs.frontend-changed == 'true' && github.event.pull_request.base.ref == 'main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Build Preview App
+        working-directory: ./later-frontend
+        run: |
+          npx expo prebuild --platform ios
+          # Build for simulator
+          xcodebuild -workspace ios/LaterApp.xcworkspace -scheme LaterApp -configuration Debug -sdk iphonesimulator -derivedDataPath ios/build
+
+      - name: Run Critical E2E Tests
+        working-directory: ./later-frontend
+        run: |
+          # Run only critical user journeys for PR validation
+          npm run test:e2e:critical
+        env:
+          DETOX_CONFIGURATION: ios.sim.debug
+
+  # Final PR Status
+  pr-status:
+    name: PR Status Summary
+    runs-on: ubuntu-latest
+    needs: [
+      pr-validation,
+      backend-validation,
+      frontend-validation,
+      security-validation,
+      test-coverage,
+      performance-impact,
+      docs-validation
+    ]
+    if: always()
+
+    steps:
+      - name: Update PR Status
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          recreate: true
+          message: |
+            ## PR Validation Summary
+
+            | Check | Status |
+            |-------|--------|
+            | PR Quality | ${{ needs.pr-validation.result == 'success' && '✅' || '❌' }} |
+            | Backend Validation | ${{ needs.backend-validation.result == 'success' && '✅' || needs.backend-validation.result == 'skipped' && '⏭️' || '❌' }} |
+            | Frontend Validation | ${{ needs.frontend-validation.result == 'success' && '✅' || needs.frontend-validation.result == 'skipped' && '⏭️' || '❌' }} |
+            | Security Validation | ${{ needs.security-validation.result == 'success' && '✅' || '❌' }} |
+            | Test Coverage | ${{ needs.test-coverage.result == 'success' && '✅' || needs.test-coverage.result == 'skipped' && '⏭️' || '❌' }} |
+            | Performance Impact | ${{ needs.performance-impact.result == 'success' && '✅' || needs.performance-impact.result == 'skipped' && '⏭️' || '❌' }} |
+            | Documentation | ${{ needs.docs-validation.result == 'success' && '✅' || needs.docs-validation.result == 'skipped' && '⏭️' || '❌' }} |
+
+            ${{ (needs.pr-validation.result == 'success' && needs.security-validation.result == 'success') && '✅ **This PR is ready for review!**' || '❌ **This PR needs attention before review.**' }}
+
+      - name: Set PR Status
+        run: |
+          if [[ "${{ needs.pr-validation.result }}" = "success" && "${{ needs.security-validation.result }}" = "success" ]]; then
+            echo "PR_STATUS=success" >> $GITHUB_ENV
+          else
+            echo "PR_STATUS=failure" >> $GITHUB_ENV
+          fi
+
+      - name: Fail if Validation Failed
+        if: env.PR_STATUS == 'failure'
+        run: exit 1

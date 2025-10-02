@@ -1,0 +1,584 @@
+{
+  "meta": {
+    "name": "Later App Design Tokens",
+    "version": "1.0.0",
+    "description": "Design tokens for the Later app, implementing calm technology principles",
+    "author": "Later Design System",
+    "created": "2025-10-01"
+  },
+  "color": {
+    "primary": {
+      "main": {
+        "value": "#4A90E2",
+        "type": "color",
+        "description": "Primary brand color for CTAs and key interactive elements"
+      },
+      "dark": {
+        "value": "#357ABD",
+        "type": "color",
+        "description": "Darker primary for hover states and emphasis"
+      },
+      "light": {
+        "value": "#7BB3E8",
+        "type": "color",
+        "description": "Lighter primary for backgrounds and subtle accents"
+      }
+    },
+    "secondary": {
+      "main": {
+        "value": "#8FBC8F",
+        "type": "color",
+        "description": "Secondary sage color for calm, supporting elements"
+      },
+      "light": {
+        "value": "#B5D6B5",
+        "type": "color",
+        "description": "Light secondary for background tints"
+      },
+      "pale": {
+        "value": "#E8F5E8",
+        "type": "color",
+        "description": "Very light secondary for cards and containers"
+      }
+    },
+    "accent": {
+      "primary": {
+        "value": "#F7B731",
+        "type": "color",
+        "description": "Warm accent for important actions and notifications"
+      },
+      "secondary": {
+        "value": "#FFC947",
+        "type": "color",
+        "description": "Lighter warm accent for highlights and warnings"
+      }
+    },
+    "semantic": {
+      "success": {
+        "main": {
+          "value": "#2ECC71",
+          "type": "color"
+        },
+        "light": {
+          "value": "#A8E6C1",
+          "type": "color"
+        },
+        "dark": {
+          "value": "#27AE60",
+          "type": "color"
+        }
+      },
+      "warning": {
+        "main": {
+          "value": "#F39C12",
+          "type": "color"
+        },
+        "light": {
+          "value": "#FCE4B6",
+          "type": "color"
+        },
+        "dark": {
+          "value": "#E67E22",
+          "type": "color"
+        }
+      },
+      "error": {
+        "main": {
+          "value": "#E74C3C",
+          "type": "color"
+        },
+        "light": {
+          "value": "#FADBD8",
+          "type": "color"
+        },
+        "dark": {
+          "value": "#C0392B",
+          "type": "color"
+        }
+      },
+      "info": {
+        "main": {
+          "value": "#3498DB",
+          "type": "color"
+        },
+        "light": {
+          "value": "#D6EAF8",
+          "type": "color"
+        },
+        "dark": {
+          "value": "#2980B9",
+          "type": "color"
+        }
+      }
+    },
+    "neutral": {
+      "50": {
+        "value": "#FAFAFA",
+        "type": "color",
+        "description": "Lightest neutral for page backgrounds"
+      },
+      "100": {
+        "value": "#F5F5F5",
+        "type": "color",
+        "description": "Light neutral for background tints"
+      },
+      "200": {
+        "value": "#E0E0E0",
+        "type": "color",
+        "description": "Neutral for card borders and dividers"
+      },
+      "300": {
+        "value": "#C6C6C6",
+        "type": "color",
+        "description": "Neutral for light borders and inactive states"
+      },
+      "400": {
+        "value": "#A8A8A8",
+        "type": "color",
+        "description": "Neutral for borders and disabled elements"
+      },
+      "500": {
+        "value": "#8A8A8A",
+        "type": "color",
+        "description": "Neutral for disabled text and subtle labels"
+      },
+      "600": {
+        "value": "#6B6B6B",
+        "type": "color",
+        "description": "Neutral for tertiary text and placeholders"
+      },
+      "700": {
+        "value": "#4A4A4A",
+        "type": "color",
+        "description": "Neutral for secondary text and labels"
+      },
+      "800": {
+        "value": "#2D2D2D",
+        "type": "color",
+        "description": "Neutral for body text and secondary headings"
+      },
+      "900": {
+        "value": "#1A1A1A",
+        "type": "color",
+        "description": "Darkest neutral for primary text and headings"
+      }
+    },
+    "text": {
+      "primary": {
+        "value": "{color.neutral.900}",
+        "type": "color",
+        "description": "Primary text color for headings and body text"
+      },
+      "secondary": {
+        "value": "{color.neutral.800}",
+        "type": "color",
+        "description": "Secondary text color for supporting content"
+      },
+      "tertiary": {
+        "value": "{color.neutral.700}",
+        "type": "color",
+        "description": "Tertiary text color for metadata and labels"
+      },
+      "disabled": {
+        "value": "{color.neutral.500}",
+        "type": "color",
+        "description": "Disabled text color"
+      },
+      "inverse": {
+        "value": "#FFFFFF",
+        "type": "color",
+        "description": "Text color for dark backgrounds"
+      }
+    },
+    "background": {
+      "primary": {
+        "value": "#FFFFFF",
+        "type": "color",
+        "description": "Primary background color"
+      },
+      "secondary": {
+        "value": "{color.neutral.50}",
+        "type": "color",
+        "description": "Secondary background color"
+      },
+      "tertiary": {
+        "value": "{color.neutral.100}",
+        "type": "color",
+        "description": "Tertiary background color"
+      }
+    }
+  },
+  "typography": {
+    "fontFamily": {
+      "primary": {
+        "value": "Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        "type": "fontFamily",
+        "description": "Primary font family for all text"
+      },
+      "mono": {
+        "value": "JetBrains Mono, SF Mono, Consolas, 'Liberation Mono', monospace",
+        "type": "fontFamily",
+        "description": "Monospace font family for code"
+      }
+    },
+    "fontSize": {
+      "h1": {
+        "value": "32px",
+        "type": "fontSize",
+        "description": "H1 heading font size"
+      },
+      "h2": {
+        "value": "28px",
+        "type": "fontSize",
+        "description": "H2 heading font size"
+      },
+      "h3": {
+        "value": "24px",
+        "type": "fontSize",
+        "description": "H3 heading font size"
+      },
+      "h4": {
+        "value": "20px",
+        "type": "fontSize",
+        "description": "H4 heading font size"
+      },
+      "h5": {
+        "value": "18px",
+        "type": "fontSize",
+        "description": "H5 heading font size"
+      },
+      "bodyLarge": {
+        "value": "18px",
+        "type": "fontSize",
+        "description": "Large body text for reading"
+      },
+      "body": {
+        "value": "16px",
+        "type": "fontSize",
+        "description": "Standard body text"
+      },
+      "bodySmall": {
+        "value": "14px",
+        "type": "fontSize",
+        "description": "Small body text"
+      },
+      "caption": {
+        "value": "12px",
+        "type": "fontSize",
+        "description": "Caption text for metadata"
+      },
+      "label": {
+        "value": "14px",
+        "type": "fontSize",
+        "description": "Label text for forms"
+      }
+    },
+    "lineHeight": {
+      "h1": {
+        "value": "40px",
+        "type": "lineHeight"
+      },
+      "h2": {
+        "value": "36px",
+        "type": "lineHeight"
+      },
+      "h3": {
+        "value": "32px",
+        "type": "lineHeight"
+      },
+      "h4": {
+        "value": "28px",
+        "type": "lineHeight"
+      },
+      "h5": {
+        "value": "26px",
+        "type": "lineHeight"
+      },
+      "bodyLarge": {
+        "value": "28px",
+        "type": "lineHeight"
+      },
+      "body": {
+        "value": "24px",
+        "type": "lineHeight"
+      },
+      "bodySmall": {
+        "value": "20px",
+        "type": "lineHeight"
+      },
+      "caption": {
+        "value": "16px",
+        "type": "lineHeight"
+      },
+      "label": {
+        "value": "20px",
+        "type": "lineHeight"
+      }
+    },
+    "fontWeight": {
+      "light": {
+        "value": "300",
+        "type": "fontWeight"
+      },
+      "regular": {
+        "value": "400",
+        "type": "fontWeight"
+      },
+      "medium": {
+        "value": "500",
+        "type": "fontWeight"
+      },
+      "semibold": {
+        "value": "600",
+        "type": "fontWeight"
+      },
+      "bold": {
+        "value": "700",
+        "type": "fontWeight"
+      }
+    }
+  },
+  "spacing": {
+    "xs": {
+      "value": "4px",
+      "type": "spacing",
+      "description": "Extra small spacing"
+    },
+    "sm": {
+      "value": "8px",
+      "type": "spacing",
+      "description": "Small spacing"
+    },
+    "md": {
+      "value": "16px",
+      "type": "spacing",
+      "description": "Medium spacing"
+    },
+    "lg": {
+      "value": "24px",
+      "type": "spacing",
+      "description": "Large spacing"
+    },
+    "xl": {
+      "value": "32px",
+      "type": "spacing",
+      "description": "Extra large spacing"
+    },
+    "2xl": {
+      "value": "48px",
+      "type": "spacing",
+      "description": "2x extra large spacing"
+    },
+    "3xl": {
+      "value": "64px",
+      "type": "spacing",
+      "description": "3x extra large spacing"
+    }
+  },
+  "borderRadius": {
+    "none": {
+      "value": "0px",
+      "type": "borderRadius"
+    },
+    "sm": {
+      "value": "4px",
+      "type": "borderRadius"
+    },
+    "md": {
+      "value": "8px",
+      "type": "borderRadius"
+    },
+    "lg": {
+      "value": "12px",
+      "type": "borderRadius"
+    },
+    "xl": {
+      "value": "16px",
+      "type": "borderRadius"
+    },
+    "full": {
+      "value": "9999px",
+      "type": "borderRadius"
+    }
+  },
+  "shadow": {
+    "sm": {
+      "value": "0 1px 2px rgba(0, 0, 0, 0.05)",
+      "type": "boxShadow",
+      "description": "Small shadow for subtle elevation"
+    },
+    "md": {
+      "value": "0 2px 8px rgba(0, 0, 0, 0.06)",
+      "type": "boxShadow",
+      "description": "Medium shadow for cards and modals"
+    },
+    "lg": {
+      "value": "0 4px 12px rgba(0, 0, 0, 0.08)",
+      "type": "boxShadow",
+      "description": "Large shadow for prominent elements"
+    },
+    "xl": {
+      "value": "0 8px 24px rgba(0, 0, 0, 0.12)",
+      "type": "boxShadow",
+      "description": "Extra large shadow for floating elements"
+    }
+  },
+  "animation": {
+    "duration": {
+      "instant": {
+        "value": "50ms",
+        "type": "duration",
+        "description": "Instant feedback duration"
+      },
+      "quick": {
+        "value": "100ms",
+        "type": "duration",
+        "description": "Quick transition duration"
+      },
+      "fast": {
+        "value": "150ms",
+        "type": "duration",
+        "description": "Fast transition duration"
+      },
+      "standard": {
+        "value": "300ms",
+        "type": "duration",
+        "description": "Standard transition duration"
+      },
+      "comfortable": {
+        "value": "400ms",
+        "type": "duration",
+        "description": "Comfortable transition duration"
+      },
+      "deliberate": {
+        "value": "500ms",
+        "type": "duration",
+        "description": "Deliberate transition duration"
+      }
+    },
+    "easing": {
+      "easeOutGentle": {
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "type": "cubicBezier",
+        "description": "Gentle ease-out for entrances"
+      },
+      "easeInOutCalm": {
+        "value": "cubic-bezier(0.4, 0, 0.2, 1)",
+        "type": "cubicBezier",
+        "description": "Calm ease-in-out for transitions"
+      },
+      "easeInSoft": {
+        "value": "cubic-bezier(0.32, 0, 0.67, 0)",
+        "type": "cubicBezier",
+        "description": "Soft ease-in for exits"
+      }
+    }
+  },
+  "component": {
+    "button": {
+      "height": {
+        "small": {
+          "value": "36px",
+          "type": "sizing"
+        },
+        "medium": {
+          "value": "44px",
+          "type": "sizing"
+        },
+        "large": {
+          "value": "52px",
+          "type": "sizing"
+        }
+      },
+      "padding": {
+        "horizontal": {
+          "value": "{spacing.lg}",
+          "type": "spacing"
+        },
+        "vertical": {
+          "value": "{spacing.md}",
+          "type": "spacing"
+        }
+      },
+      "borderRadius": {
+        "value": "{borderRadius.md}",
+        "type": "borderRadius"
+      }
+    },
+    "card": {
+      "padding": {
+        "value": "{spacing.lg}",
+        "type": "spacing"
+      },
+      "borderRadius": {
+        "value": "{borderRadius.lg}",
+        "type": "borderRadius"
+      },
+      "shadow": {
+        "value": "{shadow.md}",
+        "type": "boxShadow"
+      }
+    },
+    "input": {
+      "height": {
+        "value": "48px",
+        "type": "sizing"
+      },
+      "padding": {
+        "horizontal": {
+          "value": "{spacing.md}",
+          "type": "spacing"
+        },
+        "vertical": {
+          "value": "{spacing.sm}",
+          "type": "spacing"
+        }
+      },
+      "borderRadius": {
+        "value": "{borderRadius.md}",
+        "type": "borderRadius"
+      }
+    },
+    "tabBar": {
+      "height": {
+        "value": "84px",
+        "type": "sizing",
+        "description": "Tab bar height including safe area"
+      }
+    },
+    "fab": {
+      "size": {
+        "value": "56px",
+        "type": "sizing"
+      },
+      "shadow": {
+        "value": "0 4px 12px rgba(74, 144, 226, 0.3)",
+        "type": "boxShadow"
+      }
+    }
+  },
+  "accessibility": {
+    "minTouchTarget": {
+      "value": "44px",
+      "type": "sizing",
+      "description": "Minimum touch target size for accessibility"
+    },
+    "focusOutlineWidth": {
+      "value": "2px",
+      "type": "borderWidth",
+      "description": "Focus outline width for keyboard navigation"
+    },
+    "contrastRatio": {
+      "aa": {
+        "value": "4.5",
+        "type": "number",
+        "description": "WCAG AA contrast ratio requirement"
+      },
+      "aaa": {
+        "value": "7",
+        "type": "number",
+        "description": "WCAG AAA contrast ratio requirement"
+      }
+    }
+  }
+}

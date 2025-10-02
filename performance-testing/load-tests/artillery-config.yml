@@ -1,0 +1,165 @@
+# Artillery load testing configuration for Later app
+config:
+  target: 'http://localhost:54321'  # Supabase local development
+  phases:
+    # Warm-up phase
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm-up"
+
+    # Ramp-up phase
+    - duration: 120
+      arrivalRate: 10
+      rampTo: 50
+      name: "Ramp-up"
+
+    # Sustained load phase
+    - duration: 300
+      arrivalRate: 50
+      name: "Sustained load"
+
+    # Peak load phase
+    - duration: 180
+      arrivalRate: 50
+      rampTo: 100
+      name: "Peak load"
+
+    # Cool-down phase
+    - duration: 60
+      arrivalRate: 100
+      rampTo: 5
+      name: "Cool-down"
+
+  payload:
+    path: "./test-data/users.csv"
+    fields:
+      - "email"
+      - "password"
+      - "name"
+
+  variables:
+    testUrls:
+      - "https://example.com/article-1"
+      - "https://example.com/article-2"
+      - "https://example.com/article-3"
+      - "https://example.com/article-4"
+      - "https://example.com/article-5"
+
+  plugins:
+    metrics-by-endpoint:
+      useOnlyRequestNames: true
+
+    hdrhistogram: {}
+
+    slack:
+      webhookUrl: "{{ $processEnvironment.SLACK_WEBHOOK_URL }}"
+
+  processor: "./load-test-functions.js"
+
+scenarios:
+  - name: "User Authentication Flow"
+    weight: 20
+    flow:
+      - post:
+          url: "/auth/v1/token?grant_type=password"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Content-Type: "application/json"
+          json:
+            email: "{{ email }}"
+            password: "{{ password }}"
+          capture:
+            - json: "$.access_token"
+              as: "accessToken"
+            - json: "$.refresh_token"
+              as: "refreshToken"
+
+      - think: 2
+
+      - get:
+          url: "/auth/v1/user"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+
+  - name: "Content Capture Workflow"
+    weight: 40
+    flow:
+      - function: "authenticateUser"
+
+      - post:
+          url: "/functions/v1/capture-content"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+            Content-Type: "application/json"
+          json:
+            url: "{{ $randomString($loopElement.testUrls) }}"
+            source: "web_url"
+            metadata:
+              capture_method: "manual"
+              device_context: "load_test"
+          capture:
+            - json: "$.id"
+              as: "contentId"
+
+      - think: 5
+
+      - get:
+          url: "/rest/v1/content_items?id=eq.{{ contentId }}"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+
+  - name: "Content Browsing"
+    weight: 30
+    flow:
+      - function: "authenticateUser"
+
+      # Get user's content list
+      - get:
+          url: "/rest/v1/content_items?select=*&limit=20&order=captured_at.desc"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+          capture:
+            - json: "$[0].id"
+              as: "firstContentId"
+
+      - think: 2
+
+      # Get specific content item
+      - get:
+          url: "/rest/v1/content_items?id=eq.{{ firstContentId }}&select=*"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+
+      - think: 3
+
+      # Search content
+      - get:
+          url: "/rest/v1/content_items?or=(title.ilike.*tech*,content.ilike.*tech*)"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+
+  - name: "AI Content Processing"
+    weight: 10
+    flow:
+      - function: "authenticateUser"
+
+      - post:
+          url: "/functions/v1/process-content-ai"
+          headers:
+            apikey: "{{ $processEnvironment.SUPABASE_ANON_KEY }}"
+            Authorization: "Bearer {{ accessToken }}"
+            Content-Type: "application/json"
+          json:
+            content_id: "{{ $randomUUID() }}"
+            job_type: "summarize"
+            input_data:
+              content: "This is a sample article content for AI processing load testing. It contains enough text to trigger meaningful AI processing while remaining efficient for load testing purposes."
+          expect:
+            - statusCode: 200
+            - hasProperty: "job_id"

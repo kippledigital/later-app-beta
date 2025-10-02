@@ -1,0 +1,543 @@
+# CI/CD Pipeline for Later App
+name: Later App CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
+
+env:
+  NODE_VERSION: '18'
+  EXPO_SDK_VERSION: '50'
+
+jobs:
+  # Code Quality and Linting
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies (Backend)
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Install dependencies (Frontend)
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Lint Backend
+        working-directory: ./later-backend
+        run: npm run lint
+
+      - name: Lint Frontend
+        working-directory: ./later-frontend
+        run: npm run lint
+
+      - name: Type Check Backend
+        working-directory: ./later-backend
+        run: npm run type-check
+
+      - name: Type Check Frontend
+        working-directory: ./later-frontend
+        run: npm run type-check
+
+      - name: Security Audit
+        run: |
+          cd later-backend && npm audit --audit-level=moderate
+          cd ../later-frontend && npm audit --audit-level=moderate
+
+  # Backend Testing
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase@1.123.4
+
+      - name: Install dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Start Supabase
+        working-directory: ./later-backend
+        run: supabase start
+        env:
+          SUPABASE_DB_PASSWORD: postgres
+
+      - name: Run Database Migrations
+        working-directory: ./later-backend
+        run: supabase db push
+
+      - name: Seed Test Data
+        working-directory: ./later-backend
+        run: npm run test:seed
+
+      - name: Run Unit Tests
+        working-directory: ./later-backend
+        run: npm run test:unit
+        env:
+          SUPABASE_TEST_URL: http://localhost:54321
+          SUPABASE_TEST_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_TEST }}
+
+      - name: Run Integration Tests
+        working-directory: ./later-backend
+        run: npm run test:integration
+        env:
+          SUPABASE_TEST_URL: http://localhost:54321
+
+      - name: Run Performance Tests
+        working-directory: ./later-backend
+        run: npm run test:performance
+
+      - name: Generate Test Coverage
+        working-directory: ./later-backend
+        run: npm run test:coverage
+
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./later-backend/coverage/lcov.info
+          flags: backend
+          name: backend-coverage
+
+      - name: Stop Supabase
+        if: always()
+        working-directory: ./later-backend
+        run: supabase stop
+
+  # Frontend Testing
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Run Component Tests
+        working-directory: ./later-frontend
+        run: npm run test:components
+
+      - name: Run Store Tests
+        working-directory: ./later-frontend
+        run: npm run test:stores
+
+      - name: Run Hook Tests
+        working-directory: ./later-frontend
+        run: npm run test:hooks
+
+      - name: Run Screen Tests
+        working-directory: ./later-frontend
+        run: npm run test:screens
+
+      - name: Generate Test Coverage
+        working-directory: ./later-frontend
+        run: npm run test:coverage
+
+      - name: Upload Coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./later-frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+
+  # E2E Testing
+  e2e-tests:
+    name: E2E Tests
+    runs-on: macos-latest
+    needs: [backend-tests, frontend-tests]
+    if: github.event_name == 'push' || github.event.pull_request.base.ref == 'main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Setup iOS Simulator
+        run: |
+          xcrun simctl create "iPhone 15" "iPhone 15" "iOS17.0"
+          xcrun simctl boot "iPhone 15"
+
+      - name: Install Detox CLI
+        run: npm install -g detox-cli
+
+      - name: Build iOS App for Testing
+        working-directory: ./later-frontend
+        run: npm run test:setup:detox
+
+      - name: Run E2E Tests
+        working-directory: ./later-frontend
+        run: npm run test:e2e
+        env:
+          DETOX_CONFIGURATION: ios.sim.debug
+
+      - name: Upload E2E Test Results
+        uses: actions/upload-artifact@v3
+        if: failure()
+        with:
+          name: e2e-test-results
+          path: ./later-frontend/e2e/test-results/
+
+  # Performance Testing
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [backend-tests, frontend-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Performance Testing Tools
+        run: |
+          npm install -g artillery k6 lighthouse-ci
+
+      - name: Start Backend Services
+        working-directory: ./later-backend
+        run: |
+          npm ci
+          supabase start &
+          sleep 30
+
+      - name: Run Load Tests
+        working-directory: ./performance-testing
+        run: |
+          artillery run load-tests/artillery-config.yml
+        env:
+          SUPABASE_URL: http://localhost:54321
+          SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9
+
+      - name: Run K6 Performance Tests
+        working-directory: ./performance-testing
+        run: k6 run load-tests/k6-load-test.js
+        env:
+          BASE_URL: http://localhost:54321
+
+      - name: Run Lighthouse CI
+        run: lhci autorun
+        env:
+          LHCI_GITHUB_APP_TOKEN: ${{ secrets.LHCI_GITHUB_APP_TOKEN }}
+
+      - name: Upload Performance Reports
+        uses: actions/upload-artifact@v3
+        with:
+          name: performance-reports
+          path: |
+            ./performance-testing/reports/
+            ./.lighthouseci/
+
+  # Security Scanning
+  security-scan:
+    name: Security Scanning
+    runs-on: ubuntu-latest
+    needs: code-quality
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep Security Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: >-
+            p/security-audit
+            p/secrets
+            p/owasp-top-ten
+
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/init@v2
+        with:
+          languages: javascript, typescript
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+
+  # Build Mobile App
+  build-mobile:
+    name: Build Mobile App
+    runs-on: ubuntu-latest
+    needs: [frontend-tests, security-scan]
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli@latest
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Login to Expo
+        run: expo login
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Build for iOS (Development)
+        if: github.ref != 'refs/heads/main'
+        working-directory: ./later-frontend
+        run: |
+          eas build --platform ios --profile development --non-interactive
+        env:
+          EAS_BUILD_PROFILE: development
+
+      - name: Build for Android (Development)
+        if: github.ref != 'refs/heads/main'
+        working-directory: ./later-frontend
+        run: |
+          eas build --platform android --profile development --non-interactive
+        env:
+          EAS_BUILD_PROFILE: development
+
+      - name: Build for Production
+        if: github.ref == 'refs/heads/main'
+        working-directory: ./later-frontend
+        run: |
+          eas build --platform all --profile production --non-interactive
+        env:
+          EAS_BUILD_PROFILE: production
+
+  # Deploy Backend
+  deploy-backend:
+    name: Deploy Backend
+    runs-on: ubuntu-latest
+    needs: [backend-tests, security-scan]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
+
+      - name: Install dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Deploy to Staging
+        if: github.ref == 'refs/heads/develop' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'staging')
+        working-directory: ./later-backend
+        run: |
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF_STAGING }}
+          supabase db push
+          supabase functions deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy to Production
+        if: github.ref == 'refs/heads/main' || (github.event_name == 'workflow_dispatch' && github.event.inputs.deploy_environment == 'production')
+        working-directory: ./later-backend
+        run: |
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          supabase db push
+          supabase functions deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Vercel Functions
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./later-backend
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+  # Deploy Mobile App
+  deploy-mobile:
+    name: Deploy Mobile App
+    runs-on: ubuntu-latest
+    needs: [build-mobile, e2e-tests]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli@latest
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Login to Expo
+        run: expo login
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Submit to App Stores
+        working-directory: ./later-frontend
+        run: |
+          eas submit --platform all --latest --non-interactive
+        env:
+          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
+          EXPO_GOOGLE_SERVICE_ACCOUNT_KEY_PATH: ${{ secrets.EXPO_GOOGLE_SERVICE_ACCOUNT_KEY_PATH }}
+
+  # Post-Deployment Testing
+  post-deployment:
+    name: Post-Deployment Tests
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-mobile]
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Run Smoke Tests
+        working-directory: ./performance-testing
+        run: |
+          npm ci
+          npm run test:smoke
+        env:
+          API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+          API_KEY: ${{ secrets.PRODUCTION_API_KEY }}
+
+      - name: Run Performance Validation
+        working-directory: ./performance-testing
+        run: npm run test:production-performance
+        env:
+          API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+
+      - name: Validate App Store Deployment
+        run: |
+          # Check if app is available in stores
+          echo "Validating app store deployment..."
+          # Add actual validation logic here
+
+  # Notifications
+  notify:
+    name: Notifications
+    runs-on: ubuntu-latest
+    needs: [post-deployment]
+    if: always()
+
+    steps:
+      - name: Notify Slack on Success
+        if: needs.post-deployment.result == 'success'
+        uses: 8398a7/action-slack@v3
+        with:
+          status: success
+          text: "✅ Later App deployment successful!"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Notify Slack on Failure
+        if: failure()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: "❌ Later App deployment failed!"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Update Deployment Status
+        run: |
+          echo "Deployment completed with status: ${{ job.status }}"
+          # Update internal deployment tracking system

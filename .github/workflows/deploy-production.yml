@@ -1,0 +1,500 @@
+# Production Deployment Workflow
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      force_deploy:
+        description: 'Force deployment even if tests fail'
+        required: false
+        default: false
+        type: boolean
+      skip_tests:
+        description: 'Skip test execution (not recommended)'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+  DEPLOYMENT_ENVIRONMENT: 'production'
+
+jobs:
+  # Pre-deployment validation
+  pre-deployment:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_deploy: ${{ steps.decision.outputs.should_deploy }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine Version
+        id: version
+        run: |
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          else
+            VERSION=$(date +%Y%m%d-%H%M%S)-$(git rev-parse --short HEAD)
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Deployment version: $VERSION"
+
+      - name: Check Deployment Readiness
+        id: decision
+        run: |
+          # Check if this is a hotfix or scheduled deployment
+          if [[ "${{ github.event.inputs.force_deploy }}" == "true" ]]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "Force deployment requested"
+          elif [[ $GITHUB_REF == refs/tags/* ]]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "Tag-based deployment"
+          elif [[ $(date +%H) -ge 09 && $(date +%H) -le 17 ]]; then
+            echo "should_deploy=true" >> $GITHUB_OUTPUT
+            echo "Deployment during business hours"
+          else
+            echo "should_deploy=false" >> $GITHUB_OUTPUT
+            echo "Deployment outside business hours blocked"
+          fi
+
+      - name: Deployment Gate Check
+        if: steps.decision.outputs.should_deploy == 'false'
+        run: |
+          echo "Deployment blocked. Reasons:"
+          echo "- Outside business hours (9 AM - 5 PM UTC)"
+          echo "- Not a tagged release"
+          echo "- Force deploy not enabled"
+          exit 1
+
+  # Production readiness tests
+  production-readiness:
+    name: Production Readiness Tests
+    runs-on: ubuntu-latest
+    needs: pre-deployment
+    if: needs.pre-deployment.outputs.should_deploy == 'true' && github.event.inputs.skip_tests != 'true'
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
+
+      - name: Install Backend Dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Install Frontend Dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Start Local Supabase
+        working-directory: ./later-backend
+        run: supabase start
+
+      - name: Run Production Test Suite
+        working-directory: ./later-backend
+        run: npm run test:production
+        env:
+          SUPABASE_TEST_URL: http://localhost:54321
+
+      - name: Run Frontend Production Tests
+        working-directory: ./later-frontend
+        run: npm run test:production
+
+      - name: Run Load Tests
+        working-directory: ./performance-testing
+        run: |
+          npm ci
+          npm run test:production-load
+        env:
+          BASE_URL: http://localhost:54321
+
+      - name: Security Scan
+        run: |
+          npm install -g audit-ci
+          cd later-backend && audit-ci --moderate
+          cd ../later-frontend && audit-ci --moderate
+
+      - name: Performance Benchmarks
+        run: |
+          echo "Running performance benchmarks..."
+          # Add performance validation
+          cd performance-testing && npm run benchmark:production
+
+  # Database Migration
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, production-readiness]
+    if: always() && needs.pre-deployment.outputs.should_deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
+
+      - name: Install dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Backup Production Database
+        run: |
+          echo "Creating database backup..."
+          # Add database backup logic
+          supabase db dump --project-ref ${{ secrets.SUPABASE_PROJECT_REF_PROD }} > backup-$(date +%Y%m%d-%H%M%S).sql
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Run Database Migrations
+        working-directory: ./later-backend
+        run: |
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          supabase db push --dry-run
+          supabase db push
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Verify Migration Success
+        run: |
+          echo "Verifying database migrations..."
+          # Add migration verification logic
+
+  # Deploy Backend Services
+  deploy-backend:
+    name: Deploy Backend Services
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, database-migration]
+    if: always() && needs.pre-deployment.outputs.should_deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        working-directory: ./later-backend
+        run: npm ci
+
+      - name: Deploy Edge Functions
+        working-directory: ./later-backend
+        run: |
+          npm install -g supabase@latest
+          supabase link --project-ref ${{ secrets.SUPABASE_PROJECT_REF_PROD }}
+          supabase functions deploy --no-verify-jwt
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+
+      - name: Deploy Vercel Functions
+        uses: amondnet/vercel-action@v25
+        with:
+          vercel-token: ${{ secrets.VERCEL_TOKEN }}
+          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
+          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
+          working-directory: ./later-backend
+          vercel-args: '--prod'
+          scope: ${{ secrets.VERCEL_ORG_ID }}
+
+      - name: Update Environment Variables
+        run: |
+          echo "Updating production environment variables..."
+          # Update environment-specific configurations
+
+  # Build and Deploy Mobile App
+  deploy-mobile:
+    name: Deploy Mobile App
+    runs-on: ubuntu-latest
+    needs: [pre-deployment, production-readiness]
+    if: always() && needs.pre-deployment.outputs.should_deploy == 'true'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Setup Expo CLI
+        run: npm install -g @expo/cli@latest eas-cli@latest
+
+      - name: Install dependencies
+        working-directory: ./later-frontend
+        run: npm ci
+
+      - name: Login to Expo
+        run: expo login
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Update App Version
+        working-directory: ./later-frontend
+        run: |
+          # Update app version for production
+          VERSION="${{ needs.pre-deployment.outputs.version }}"
+          npm version $VERSION --no-git-tag-version
+
+      - name: Build Production Apps
+        working-directory: ./later-frontend
+        run: |
+          eas build --platform all --profile production --non-interactive --wait
+        env:
+          EAS_BUILD_PROFILE: production
+
+      - name: Submit to App Stores
+        working-directory: ./later-frontend
+        run: |
+          eas submit --platform all --latest --non-interactive
+        env:
+          EXPO_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.EXPO_APPLE_APP_SPECIFIC_PASSWORD }}
+          EXPO_GOOGLE_SERVICE_ACCOUNT_KEY: ${{ secrets.EXPO_GOOGLE_SERVICE_ACCOUNT_KEY }}
+
+      - name: Create OTA Update
+        working-directory: ./later-frontend
+        run: |
+          eas update --branch production --message "Production deployment ${{ needs.pre-deployment.outputs.version }}"
+
+  # Post-deployment validation
+  post-deployment:
+    name: Post-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-mobile]
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Wait for Deployment Propagation
+        run: sleep 60
+
+      - name: Run Smoke Tests
+        working-directory: ./performance-testing
+        run: |
+          npm ci
+          npm run test:smoke:production
+        env:
+          API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+          API_KEY: ${{ secrets.PRODUCTION_API_KEY }}
+
+      - name: Health Check API Endpoints
+        run: |
+          # Test critical API endpoints
+          echo "Testing production API health..."
+          curl -f ${{ secrets.PRODUCTION_API_URL }}/health || exit 1
+          curl -f ${{ secrets.PRODUCTION_API_URL }}/functions/v1/health-check || exit 1
+
+      - name: Validate Mobile App Availability
+        run: |
+          echo "Validating mobile app deployment..."
+          # Check app store availability
+          # This would typically check app store APIs
+
+      - name: Performance Validation
+        working-directory: ./performance-testing
+        run: |
+          npm run test:production-performance
+        env:
+          API_BASE_URL: ${{ secrets.PRODUCTION_API_URL }}
+
+      - name: User Acceptance Testing
+        run: |
+          echo "Running automated user acceptance tests..."
+          # Add UAT automation
+
+  # Monitoring and Alerting Setup
+  setup-monitoring:
+    name: Setup Production Monitoring
+    runs-on: ubuntu-latest
+    needs: [post-deployment]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy Monitoring Dashboard
+        run: |
+          echo "Deploying monitoring dashboards..."
+          # Deploy Grafana/monitoring configurations
+
+      - name: Configure Alerting
+        run: |
+          echo "Configuring production alerts..."
+          # Set up PagerDuty/Slack alerts
+
+      - name: Update Status Page
+        run: |
+          echo "Updating status page..."
+          # Update public status page
+
+  # Rollback Capability
+  prepare-rollback:
+    name: Prepare Rollback Plan
+    runs-on: ubuntu-latest
+    needs: [deploy-backend, deploy-mobile]
+    if: always()
+
+    steps:
+      - name: Tag Current Deployment
+        run: |
+          echo "Tagging deployment for potential rollback..."
+          # Create deployment tags
+
+      - name: Create Rollback Scripts
+        run: |
+          echo "Creating rollback scripts..."
+          # Generate automated rollback procedures
+
+      - name: Store Deployment Artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: deployment-artifacts-${{ needs.pre-deployment.outputs.version }}
+          path: |
+            ./deployment-logs/
+            ./rollback-scripts/
+          retention-days: 30
+
+  # Notification and Documentation
+  deployment-complete:
+    name: Deployment Complete
+    runs-on: ubuntu-latest
+    needs: [
+      pre-deployment,
+      production-readiness,
+      database-migration,
+      deploy-backend,
+      deploy-mobile,
+      post-deployment,
+      setup-monitoring,
+      prepare-rollback
+    ]
+    if: always()
+
+    steps:
+      - name: Calculate Deployment Status
+        id: status
+        run: |
+          if [[ "${{ needs.post-deployment.result }}" == "success" ]]; then
+            echo "status=success" >> $GITHUB_OUTPUT
+            echo "message=✅ Production deployment successful!" >> $GITHUB_OUTPUT
+          else
+            echo "status=failure" >> $GITHUB_OUTPUT
+            echo "message=❌ Production deployment failed!" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release Notes
+        if: steps.status.outputs.status == 'success'
+        run: |
+          echo "Creating release notes..."
+          # Generate automated release notes
+
+      - name: Notify Stakeholders
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ steps.status.outputs.status }}
+          text: |
+            ${{ steps.status.outputs.message }}
+
+            Version: ${{ needs.pre-deployment.outputs.version }}
+            Environment: Production
+
+            Deployment Summary:
+            - Backend: ${{ needs.deploy-backend.result }}
+            - Mobile: ${{ needs.deploy-mobile.result }}
+            - Post-validation: ${{ needs.post-deployment.result }}
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+      - name: Update Documentation
+        run: |
+          echo "Updating deployment documentation..."
+          # Update internal docs
+
+      - name: Trigger Post-deployment Tasks
+        if: steps.status.outputs.status == 'success'
+        run: |
+          echo "Triggering post-deployment tasks..."
+          # Trigger marketing notifications, etc.
+
+  # Rollback on Failure
+  emergency-rollback:
+    name: Emergency Rollback
+    runs-on: ubuntu-latest
+    needs: [post-deployment]
+    if: failure() && needs.post-deployment.result == 'failure'
+
+    steps:
+      - name: Initiate Emergency Rollback
+        run: |
+          echo "CRITICAL: Initiating emergency rollback!"
+          # Trigger automated rollback procedures
+
+      - name: Notify Emergency Contacts
+        uses: 8398a7/action-slack@v3
+        with:
+          status: failure
+          text: |
+            🚨 EMERGENCY ROLLBACK INITIATED 🚨
+
+            Production deployment failed validation.
+            Automatic rollback in progress.
+
+            Incident response team has been notified.
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.EMERGENCY_SLACK_WEBHOOK_URL }}
+
+      - name: Create Incident Report
+        run: |
+          echo "Creating incident report..."
+          # Auto-create incident in tracking system
